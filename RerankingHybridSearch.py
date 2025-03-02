@@ -1,6 +1,6 @@
 from fastembed import TextEmbedding, LateInteractionTextEmbedding, SparseTextEmbedding
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
+import pandas as pd
 
 client = QdrantClient(url="http://localhost:6333")
 
@@ -66,26 +66,27 @@ late_interaction_embeddings = list(late_interaction_embedding_model.embed(doc fo
 
 from qdrant_client.models import Distance, VectorParams, models
 
-client.create_collection(
-    "hybrid-search",
-    vectors_config={
-        "all-MiniLM-L6-v2": models.VectorParams(
-            size=len(dense_embeddings[0]),
-            distance=models.Distance.COSINE,
-        ),
-        "colbertv2.0": models.VectorParams(
-            size=len(late_interaction_embeddings[0][0]),
-            distance=models.Distance.COSINE,
-            multivector_config=models.MultiVectorConfig(
-                comparator=models.MultiVectorComparator.MAX_SIM,
+if not client.collection_exists("basic-search-rerank"):
+    client.create_collection(
+        "hybrid-search",
+        vectors_config={
+            "all-MiniLM-L6-v2": models.VectorParams(
+                size=len(dense_embeddings[0]),
+                distance=models.Distance.COSINE,
+            ),
+            "colbertv2.0": models.VectorParams(
+                size=len(late_interaction_embeddings[0][0]),
+                distance=models.Distance.COSINE,
+                multivector_config=models.MultiVectorConfig(
+                    comparator=models.MultiVectorComparator.MAX_SIM,
+                )
+            ),
+        },
+        sparse_vectors_config={
+            "bm25": models.SparseVectorParams(modifier=models.Modifier.IDF
             )
-        ),
-    },
-    sparse_vectors_config={
-        "bm25": models.SparseVectorParams(modifier=models.Modifier.IDF
-        )
-    }
-)
+        }
+    )
 
 from qdrant_client.models import PointStruct
 
@@ -134,4 +135,17 @@ results = client.query_points(
 )
 
 
-print(results)
+#print(results)
+
+# Форматированный вывод результатов
+search_results = [
+    {
+        "ID": point.id,
+        "Document": point.payload["document"],
+        "Score": round(point.score, 2)
+    }
+    for point in results.points
+]
+
+search_results_df = pd.DataFrame(search_results)
+print(search_results_df)
