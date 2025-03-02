@@ -1,27 +1,16 @@
+from fastembed import TextEmbedding, LateInteractionTextEmbedding, SparseTextEmbedding
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
-from sentence_transformers import SentenceTransformer, CrossEncoder
 import pandas as pd
 
-# Подключение к Qdrant
+print(LateInteractionTextEmbedding.list_supported_models())
+
 client = QdrantClient(url="http://localhost:6333")
-print(client.get_collections())
 
-# Используем BGE-M3 для эмбеддингов и реранкинга
-#embedding_model = SentenceTransformer("BAAI/bge-large-en")  # BGE-M3 для эмбеддингов
-#rerank_model = CrossEncoder("BAAI/bge-reranker-large")  # BGE-M3 для реранкинга
+dense_embedding_model = TextEmbedding("intfloat/multilingual-e5-large")
+late_interaction_embedding_model = LateInteractionTextEmbedding("jinaai/jina-colbert-v2")
+bm25_embedding_model = SparseTextEmbedding("Qdrant/bm25")
 
-embedding_model = SentenceTransformer("BAAI/bge-m3")  # BGE-M3 для эмбеддингов на русском
-rerank_model = CrossEncoder("BAAI/bge-reranker-v2-m3")  # BGE-M3 для реранкинга
 
-# Создание коллекции в Qdrant
-if not client.collection_exists("basic-search-rerank_RU"):
-    client.create_collection(
-	collection_name="basic-search-rerank_RU",
-	vectors_config=VectorParams(size=1024, distance=Distance.DOT),
-    )
-
-# Пример данных
 
 query = "Какова цель масштабирования признаков в машинном обучении?"
 
@@ -75,56 +64,92 @@ documents = [
     "В методах увеличения данных (data augmentation) масштабирование может использоваться для обеспечения консистентности обучающего набора, особенно в задачах компьютерного зрения."
 ]
 
+dense_embeddings = list(dense_embedding_model.embed(doc for doc in documents))
+bm25_embeddings = list(bm25_embedding_model.embed(doc for doc in documents))
+late_interaction_embeddings = list(late_interaction_embedding_model.embed(doc for doc in documents))
 
-# Генерация эмбеддингов с помощью BGE-M3
-doc_embeddings = [embedding_model.encode(doc).tolist() for doc in documents]
+from qdrant_client.models import Distance, VectorParams, models
 
-# Запись эмбеддингов в Qdrant
-points = [
-    PointStruct(
+if not client.collection_exists("hybrid-search_RU"):
+    client.create_collection(
+        "hybrid-search_RU",
+        vectors_config={
+            "all-MiniLM-L6-v2": models.VectorParams(
+                size=len(dense_embeddings[0]),
+                distance=models.Distance.COSINE,
+            ),
+            "colbertv2.0": models.VectorParams(
+                size=len(late_interaction_embeddings[0][0]),
+                distance=models.Distance.COSINE,
+                multivector_config=models.MultiVectorConfig(
+                    comparator=models.MultiVectorComparator.MAX_SIM,
+                )
+            ),
+        },
+        sparse_vectors_config={
+            "bm25": models.SparseVectorParams(modifier=models.Modifier.IDF
+            )
+        }
+    )
+
+from qdrant_client.models import PointStruct
+
+points = []
+for idx, (dense_embedding, bm25_embedding, late_interaction_embedding, doc) in enumerate(
+        zip(dense_embeddings, bm25_embeddings, late_interaction_embeddings, documents)):
+    point = PointStruct(
         id=idx,
-        vector=embedding,
+        vector={
+            "all-MiniLM-L6-v2": dense_embedding,
+            "bm25": bm25_embedding.as_object(),
+            "colbertv2.0": late_interaction_embedding,
+        },
         payload={"document": doc}
     )
-    for idx, (embedding, doc) in enumerate(zip(doc_embeddings, documents))
-]
+    points.append(point)
 
 operation_info = client.upsert(
-    collection_name="basic-search-rerank_RU",
+    collection_name="hybrid-search_RU",
     points=points
 )
 
-# Преобразование запроса в эмбеддинг
-query_embedding = embedding_model.encode(query).tolist()
+dense_vectors = next(dense_embedding_model.query_embed(query))
+sparse_vectors = next(bm25_embedding_model.query_embed(query))
+late_vectors = next(late_interaction_embedding_model.query_embed(query))
 
-# Поиск векторных ближайших соседей
-search_result = client.query_points(
-    collection_name="basic-search-rerank_RU", query=query_embedding, limit=10
-).points
+prefetch = [
+        models.Prefetch(
+            query=dense_vectors,
+            using="all-MiniLM-L6-v2",
+            limit=20,
+        ),
+        models.Prefetch(
+            query=models.SparseVector(**sparse_vectors.as_object()),
+            using="bm25",
+            limit=20,
+        ),
+    ]
+results = client.query_points(
+         "hybrid-search_RU",
+        prefetch=prefetch,
+        query=late_vectors,
+        using="colbertv2.0",
+        with_payload=True,
+        limit=10,
+)
 
-document_list = [point.payload['document'] for point in search_result]
-document_ids = [point.id for point in search_result]
-document_scores = [point.score for point in search_result]
 
-# Вывод результатов поиска
-search_results_df = pd.DataFrame({
-    "ID": document_ids,
-    "Document": [doc[:80] + "..." for doc in document_list],
-    "Score": document_scores
-})
+#print(results)
+
+# Форматированный вывод результатов
+search_results = [
+    {
+        "ID": point.id,
+        "Document": point.payload["document"],
+        "Score": round(point.score, 2)
+    }
+    for point in results.points
+]
+
+search_results_df = pd.DataFrame(search_results)
 print(search_results_df)
-
-document_list = [point.payload['document'] for point in search_result]
-
-# Реранкинг результатов с помощью BGE-M3
-scores = rerank_model.predict([(query, doc) for doc in document_list])
-reranked_data = sorted(zip(document_ids, document_list, scores), key=lambda x: x[2], reverse=True)
-
-# Вывод результатов реранкинга
-reranked_results_df = pd.DataFrame({
-    "ID": [doc_id for doc_id, _, _ in reranked_data],
-    "Document": [doc[:80] + "..." for _, doc, _ in reranked_data],
-    "Score": [score for _, _, score in reranked_data]
-})
-print(reranked_results_df)
-

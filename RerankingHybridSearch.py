@@ -66,7 +66,7 @@ late_interaction_embeddings = list(late_interaction_embedding_model.embed(doc fo
 
 from qdrant_client.models import Distance, VectorParams, models
 
-if not client.collection_exists("basic-search-rerank"):
+if not client.collection_exists("hybrid-search"):
     client.create_collection(
         "hybrid-search",
         vectors_config={
