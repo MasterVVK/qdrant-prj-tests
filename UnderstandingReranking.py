@@ -8,6 +8,7 @@ import pandas as pd
 #    url="<ADD-URL>",
 #    api_key="<API-KEY>",
 #)
+#1
 
 client = QdrantClient(url="http://localhost:6333")
 print(client.get_collections())
