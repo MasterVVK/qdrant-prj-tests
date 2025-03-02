@@ -12,8 +12,8 @@ print(client.get_collections())
 embedding_model = SentenceTransformer("BAAI/bge-large-en")  # BGE-M3 для эмбеддингов
 rerank_model = CrossEncoder("BAAI/bge-reranker-large")  # BGE-M3 для реранкинга
 
-embedding_model = SentenceTransformer("BAAI/bge-m3")  # BGE-M3 для эмбеддингов на русском
-rerank_model = CrossEncoder("BAAI/bge-reranker-v2-m3")  # BGE-M3 для реранкинга
+#embedding_model = SentenceTransformer("BAAI/bge-m3")  # BGE-M3 для эмбеддингов на русском
+#rerank_model = CrossEncoder("BAAI/bge-reranker-v2-m3")  # BGE-M3 для реранкинга
 
 # Создание коллекции в Qdrant
 if not client.collection_exists("basic-search-rerank"):
