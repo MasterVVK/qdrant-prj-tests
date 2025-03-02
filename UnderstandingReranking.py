@@ -4,11 +4,6 @@ from sentence_transformers import SentenceTransformer, CrossEncoder
 import pandas as pd
 
 # Подключение к Qdrant
-#client = QdrantClient(
-#    url="<ADD-URL>",
-#    api_key="<API-KEY>",
-#)
-#1
 
 client = QdrantClient(url="http://localhost:6333")
 print(client.get_collections())

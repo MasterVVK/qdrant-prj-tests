@@ -4,11 +4,6 @@ from sentence_transformers import SentenceTransformer, CrossEncoder
 import pandas as pd
 
 # Подключение к Qdrant
-#client = QdrantClient(
-#    url="<ADD-URL>",
-#    api_key="<API-KEY>",
-#)
-
 client = QdrantClient(url="http://localhost:6333")
 print(client.get_collections())
 
@@ -27,7 +22,6 @@ if not client.collection_exists("basic-search-rerank_RU"):
     )
 
 # Пример данных
-
 
 query = "Какова цель масштабирования признаков в машинном обучении?"
 
@@ -122,13 +116,6 @@ print(search_results_df)
 
 document_list = [point.payload['document'] for point in search_result]
 
-# Реранкинг результатов с помощью BGE-M3
-#scores = rerank_model.predict([(query, doc) for doc in document_list])
-#reranked_results = [x for _, x in sorted(zip(scores, document_list), reverse=True)]
-
-# Вывод результатов
-#for i, doc in enumerate(reranked_results[:5]):
-#    print(f"{i+1}. {doc}")
 # Реранкинг результатов с помощью BGE-M3
 scores = rerank_model.predict([(query, doc) for doc in document_list])
 reranked_data = sorted(zip(document_ids, document_list, scores), key=lambda x: x[2], reverse=True)
